@@ -1,0 +1,16 @@
+# Node / Next.js
+node_modules/
+.next/
+out/
+dist/
+.env
+.env.local
+.env.*.local
+
+# ASP.NET
+bin/
+obj/
+*.db
+
+# Logs
+*.log
