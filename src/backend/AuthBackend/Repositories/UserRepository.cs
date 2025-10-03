@@ -1,19 +1,27 @@
-public class UserRepository : IUserRepository {
-    private readonly List<User> _users = new();
+using AuthBackend.Models;
 
-    public Task<User?> GetByUsernameAsync(string username) =>
-        Task.FromResult(_users.FirstOrDefault(u => u.Username == username));
+namespace AuthBackend.Repositories
+{
+    public class UserRepository : IUserRepository
+    {
+        private readonly List<User> _users = new();
 
-    public Task<User?> GetByIdAsync(Guid id) =>
-        Task.FromResult(_users.FirstOrDefault(u => u.Id == id));
+        public Task<User?> GetByUsernameAsync(string username) =>
+            Task.FromResult(_users.FirstOrDefault(u => u.Username == username));
 
-    public Task AddAsync(User user) {
-        _users.Add(user);
-        return Task.CompletedTask;
-    }
+        public Task<User?> GetByIdAsync(Guid id) =>
+            Task.FromResult(_users.FirstOrDefault(u => u.Id == id));
 
-    public Task UpdateAsync(User user) {
-        // vì in-memory nên không cần code update phức tạp
-        return Task.CompletedTask;
+        public Task AddAsync(User user)
+        {
+            _users.Add(user);
+            return Task.CompletedTask;
+        }
+
+        public Task UpdateAsync(User user)
+        {
+            // với in-memory list thì không cần làm gì thêm
+            return Task.CompletedTask;
+        }
     }
 }

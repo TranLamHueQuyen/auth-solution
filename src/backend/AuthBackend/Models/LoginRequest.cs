@@ -1,4 +1,10 @@
-public class LoginRequest {
-    public string Username { get; set; }
-    public string Password { get; set; }
+using System.ComponentModel.DataAnnotations;
+
+public class LoginRequest
+{
+    [Required]
+    public string Username { get; set; } = string.Empty;
+
+    [Required]
+    public string Password { get; set; } = string.Empty;
 }
