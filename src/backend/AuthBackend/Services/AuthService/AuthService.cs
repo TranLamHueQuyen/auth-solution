@@ -11,14 +11,18 @@ namespace AuthBackend.Services
         private readonly IUserRepository _userRepo;
         private readonly IRefreshTokenRepository _refreshRepo;
         private readonly ITokenService _tokenService;
+        
+        private readonly IUserRepository _userRepository;
 
         public AuthService(IUserRepository userRepo,
                            IRefreshTokenRepository refreshRepo,
-                           ITokenService tokenService)
+                           ITokenService tokenService,
+                           IUserRepository userRepository)
         {
             _userRepo = userRepo;
             _refreshRepo = refreshRepo;
             _tokenService = tokenService;
+            _userRepository = userRepository;
         }
 
         public async Task<(string accessToken, string refreshToken)> RegisterAsync(RegisterRequest request)
@@ -35,7 +39,6 @@ namespace AuthBackend.Services
                 Role = "User"
             };
 
-            // Commit user trước khi tạo token để tránh FK lỗi
             await _userRepo.AddAsync(user);
 
             return await GenerateAndStoreTokensAsync(user);
@@ -47,8 +50,10 @@ namespace AuthBackend.Services
             if (user == null || !BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
                 throw new UnauthorizedAccessException("Invalid credentials.");
 
+            // Tạo access + refresh token mới
             return await GenerateAndStoreTokensAsync(user);
         }
+
 
         public async Task<(string accessToken, string refreshToken)> RefreshAsync(string refreshToken)
         {
@@ -97,5 +102,11 @@ namespace AuthBackend.Services
             await _refreshRepo.AddAsync(token);
             return (access, refresh);
         }
+
+        public async Task<User?> GetUserByIdAsync(Guid userId)
+        {
+            return await _userRepository.GetByIdAsync(userId);
+        }
+
     }
 }

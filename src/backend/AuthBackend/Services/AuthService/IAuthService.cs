@@ -10,5 +10,6 @@ namespace AuthBackend.Services
         Task<(string accessToken, string refreshToken)> LoginAsync(LoginRequest request); // ✅ LoginRequest
         Task<(string accessToken, string refreshToken)> RefreshAsync(string refreshToken);
         Task LogoutAsync(Guid userId);
+        Task<User?> GetUserByIdAsync(Guid userId);
     }
 }
