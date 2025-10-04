@@ -7,17 +7,12 @@ using AuthBackend.Models;
 using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Tokens;
 
-
 namespace AuthBackend.Services
 {
     public class TokenService : ITokenService
     {
         private readonly IConfiguration _config;
-
-        public TokenService(IConfiguration config)
-        {
-            _config = config;
-        }
+        public TokenService(IConfiguration config) => _config = config;
 
         public string GenerateAccessToken(User user)
         {
@@ -42,10 +37,8 @@ namespace AuthBackend.Services
             return new JwtSecurityTokenHandler().WriteToken(token);
         }
 
-        public string GenerateRefreshToken()
-        {
-            return Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
-        }
+        public string GenerateRefreshToken() =>
+            Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
 
         public string HashToken(string token)
         {
