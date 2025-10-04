@@ -1,27 +1,44 @@
+using AuthBackend.Data;
 using AuthBackend.Models;
+using Microsoft.EntityFrameworkCore;
+using System;
+using System.Threading.Tasks;
 
 namespace AuthBackend.Repositories
 {
     public class UserRepository : IUserRepository
     {
-        private readonly List<User> _users = new();
+        private readonly AuthDbContext _context;
 
-        public Task<User?> GetByUsernameAsync(string username) =>
-            Task.FromResult(_users.FirstOrDefault(u => u.Username == username));
-
-        public Task<User?> GetByIdAsync(Guid id) =>
-            Task.FromResult(_users.FirstOrDefault(u => u.Id == id));
-
-        public Task AddAsync(User user)
+        public UserRepository(AuthDbContext context)
         {
-            _users.Add(user);
-            return Task.CompletedTask;
+            _context = context;
         }
 
-        public Task UpdateAsync(User user)
+        // Lấy user theo username
+        public async Task<User?> GetByUsernameAsync(string username)
         {
-            // với in-memory list thì không cần làm gì thêm
-            return Task.CompletedTask;
+            return await _context.Users.FirstOrDefaultAsync(u => u.Username == username);
+        }
+
+        // Lấy user theo Id
+        public async Task<User?> GetByIdAsync(Guid id)
+        {
+            return await _context.Users.FindAsync(id);
+        }
+
+        // Thêm user mới
+        public async Task AddAsync(User user)
+        {
+            _context.Users.Add(user);
+            await _context.SaveChangesAsync(); // commit để tránh lỗi FK với RefreshToken
+        }
+
+        // Cập nhật user
+        public async Task UpdateAsync(User user)
+        {
+            _context.Users.Update(user);
+            await _context.SaveChangesAsync();
         }
     }
 }

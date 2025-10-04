@@ -1,83 +1,101 @@
-using System;
-using System.Collections.Concurrent;
-using System.Threading.Tasks;
 using AuthBackend.Models;
 using AuthBackend.Repositories;
-using AuthBackend.Services;   
+using System;
+using System.Threading.Tasks;
+using BCrypt.Net;
 
 namespace AuthBackend.Services
 {
     public class AuthService : IAuthService
     {
-        private readonly IUserRepository _userRepository;
+        private readonly IUserRepository _userRepo;
+        private readonly IRefreshTokenRepository _refreshRepo;
         private readonly ITokenService _tokenService;
 
-        // Lưu refresh tokens tạm trong RAM (demo) → thực tế phải lưu DB/Redis
-        private static readonly ConcurrentDictionary<Guid, string> _refreshTokens = new();
-
-        public AuthService(IUserRepository userRepository, ITokenService tokenService)
+        public AuthService(IUserRepository userRepo,
+                           IRefreshTokenRepository refreshRepo,
+                           ITokenService tokenService)
         {
-            _userRepository = userRepository;
+            _userRepo = userRepo;
+            _refreshRepo = refreshRepo;
             _tokenService = tokenService;
         }
 
         public async Task<(string accessToken, string refreshToken)> RegisterAsync(RegisterRequest request)
         {
-            // Check user tồn tại
-            var existing = await _userRepository.GetByUsernameAsync(request.Username);
+            var existing = await _userRepo.GetByUsernameAsync(request.Username);
             if (existing != null)
                 throw new InvalidOperationException("Username already exists.");
 
-            // Tạo user mới
             var user = new User
             {
                 Id = Guid.NewGuid(),
                 Username = request.Username,
-                Password  = BCrypt.Net.BCrypt.HashPassword(request.Password),
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password),
                 Role = "User"
             };
 
-            await _userRepository.AddAsync(user);
+            // Commit user trước khi tạo token để tránh FK lỗi
+            await _userRepo.AddAsync(user);
 
-            return GenerateTokens(user);
+            return await GenerateAndStoreTokensAsync(user);
         }
 
         public async Task<(string accessToken, string refreshToken)> LoginAsync(LoginRequest request)
         {
-            var user = await _userRepository.GetByUsernameAsync(request.Username);
-            if (user == null || !BCrypt.Net.BCrypt.Verify(request.Password, user.Password ))
-                throw new UnauthorizedAccessException("Invalid username or password.");
+            var user = await _userRepo.GetByUsernameAsync(request.Username);
+            if (user == null || !BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
+                throw new UnauthorizedAccessException("Invalid credentials.");
 
-            return GenerateTokens(user);
+            return await GenerateAndStoreTokensAsync(user);
         }
 
-        public Task<(string accessToken, string refreshToken)> RefreshAsync(string refreshToken, Guid userId)
+        public async Task<(string accessToken, string refreshToken)> RefreshAsync(string refreshToken)
         {
-            if (string.IsNullOrEmpty(refreshToken) || !_refreshTokens.TryGetValue(userId, out var stored) || stored != refreshToken)
+            var hashed = _tokenService.HashToken(refreshToken);
+            var stored = await _refreshRepo.GetByHashAsync(hashed);
+
+            if (stored == null)
+            {
+                var revoked = await _refreshRepo.GetRevokedByHashAsync(hashed);
+                if (revoked != null)
+                {
+                    await _refreshRepo.RevokeAllForUserAsync(revoked.UserId, "Refresh token reuse detected");
+                    throw new UnauthorizedAccessException("Detected refresh token reuse. Please login again.");
+                }
                 throw new UnauthorizedAccessException("Invalid refresh token.");
+            }
 
-            // Lấy user từ repository
-            var user = _userRepository.GetByIdAsync(userId).Result;
-            if (user == null)
-                throw new UnauthorizedAccessException("User not found.");
+            if (stored.ExpiryDate < DateTime.UtcNow)
+                throw new UnauthorizedAccessException("Expired refresh token.");
 
-            return Task.FromResult(GenerateTokens(user));
+            var (access, newRefresh) = await GenerateAndStoreTokensAsync(stored.User);
+            var hashedNew = _tokenService.HashToken(newRefresh);
+            await _refreshRepo.RevokeAsync(stored.Id, "Rotated", hashedNew);
+
+            return (access, newRefresh);
         }
 
-        public Task LogoutAsync(Guid userId)
+        public async Task LogoutAsync(Guid userId)
         {
-            _refreshTokens.TryRemove(userId, out _);
-            return Task.CompletedTask;
+            await _refreshRepo.RevokeAllForUserAsync(userId, "User logout");
         }
 
-        private (string accessToken, string refreshToken) GenerateTokens(User user)
+        private async Task<(string accessToken, string refreshToken)> GenerateAndStoreTokensAsync(User user)
         {
-            var accessToken = _tokenService.GenerateAccessToken(user);
-            var refreshToken = _tokenService.GenerateRefreshToken();
+            var access = _tokenService.GenerateAccessToken(user);
+            var refresh = _tokenService.GenerateRefreshToken();
+            var hashed = _tokenService.HashToken(refresh);
 
-            _refreshTokens[user.Id] = refreshToken;
+            var token = new RefreshToken
+            {
+                UserId = user.Id,
+                TokenHash = hashed,
+                ExpiryDate = DateTime.UtcNow.AddDays(7)
+            };
 
-            return (accessToken, refreshToken);
+            await _refreshRepo.AddAsync(token);
+            return (access, refresh);
         }
     }
 }

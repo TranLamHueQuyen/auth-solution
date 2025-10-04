@@ -1,12 +1,10 @@
 using System;
-using System.Security.Claims;
 using System.Threading.Tasks;
 using AuthBackend.Models;
 using AuthBackend.Services;
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-
+using Microsoft.Extensions.Hosting;
+using AuthBackend.Models;
 
 namespace AuthBackend.Controllers
 {
@@ -15,26 +13,20 @@ namespace AuthBackend.Controllers
     public class AuthController : ControllerBase
     {
         private readonly IAuthService _authService;
+        private readonly IHostEnvironment _env;
 
-        public AuthController(IAuthService authService)
+        public AuthController(IAuthService authService, IHostEnvironment env)
         {
             _authService = authService;
+            _env = env;
         }
 
-         [HttpPost("register")]
+        [HttpPost("register")]
         public async Task<IActionResult> Register(RegisterRequest request)
         {
-            try
-            {
-                var (access, refresh) = await _authService.RegisterAsync(request);
-                SetRefreshTokenCookie(refresh);
-                return Ok(new { access });
-            }
-            catch (InvalidOperationException ex)
-            {
-                // Trả 400 Bad Request với thông báo chi tiết
-                return BadRequest(new { error = ex.Message });
-            }
+            var tokens = await _authService.RegisterAsync(request);
+            SetRefreshTokenCookie(tokens.refreshToken);
+            return Ok(new { tokens.accessToken });
         }
 
         [HttpPost("login")]
@@ -45,45 +37,34 @@ namespace AuthBackend.Controllers
             return Ok(new { access });
         }
 
+
         [HttpPost("refresh")]
         public async Task<IActionResult> Refresh()
         {
-            var refresh = Request.Cookies["refreshToken"];
-            var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier));
-            var (access, newRefresh) = await _authService.RefreshAsync(refresh, userId);
-            SetRefreshTokenCookie(newRefresh);
-            return Ok(new { access });
+            if (!Request.Cookies.TryGetValue("refreshToken", out var refresh) || string.IsNullOrEmpty(refresh))
+                return Unauthorized();
+
+            var tokens = await _authService.RefreshAsync(refresh);
+            SetRefreshTokenCookie(tokens.refreshToken);
+            return Ok(new { tokens.accessToken });
         }
 
-        [Authorize]
         [HttpPost("logout")]
-        public async Task<IActionResult> Logout()
+        public async Task<IActionResult> Logout([FromBody] Guid userId)
         {
-            var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier));
             await _authService.LogoutAsync(userId);
             Response.Cookies.Delete("refreshToken");
             return Ok();
         }
 
-        [Authorize]
-        [HttpGet("me")]
-        public IActionResult Me()
-        {
-            return Ok(new
-            {
-                Id = User.FindFirstValue(ClaimTypes.NameIdentifier),
-                Username = User.Identity?.Name,
-                Role = User.FindFirstValue(ClaimTypes.Role)
-            });
-        }
-
         private void SetRefreshTokenCookie(string token)
         {
-            Response.Cookies.Append("refreshToken", token, new CookieOptions
+            var isProd = _env.IsProduction();
+            Response.Cookies.Append("refreshToken", token, new Microsoft.AspNetCore.Http.CookieOptions
             {
                 HttpOnly = true,
-                Secure = true,
-                SameSite = SameSiteMode.Strict,
+                Secure = isProd,
+                SameSite = Microsoft.AspNetCore.Http.SameSiteMode.Strict,
                 Expires = DateTime.UtcNow.AddDays(7)
             });
         }
